@@ -37,6 +37,7 @@ class Settings:
     ollama_base_url: str = "http://localhost:11434"
     chroma_db_dir: str = "data/chroma_db"
     raw_pdf_dir: str = "data/raw_pdfs"
+    document_registry_path: str = "data/documents.json"
     top_k: int = 5
     chunk_size: int = 800
     chunk_overlap: int = 150
@@ -52,6 +53,11 @@ class Settings:
             ollama_base_url=_get_value("OLLAMA_BASE_URL", cls.ollama_base_url, env_values).rstrip("/"),
             chroma_db_dir=_get_value("CHROMA_DB_DIR", cls.chroma_db_dir, env_values),
             raw_pdf_dir=_get_value("RAW_PDF_DIR", cls.raw_pdf_dir, env_values),
+            document_registry_path=_get_value(
+                "DOCUMENT_REGISTRY_PATH",
+                cls.document_registry_path,
+                env_values,
+            ),
             top_k=int(_get_value("TOP_K", str(cls.top_k), env_values)),
             chunk_size=int(_get_value("CHUNK_SIZE", str(cls.chunk_size), env_values)),
             chunk_overlap=int(_get_value("CHUNK_OVERLAP", str(cls.chunk_overlap), env_values)),

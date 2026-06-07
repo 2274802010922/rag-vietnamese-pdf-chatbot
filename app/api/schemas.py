@@ -27,6 +27,30 @@ class DocumentInfo(BaseModel):
     file_name: str
     path: str
     size_bytes: int
+    uploaded_at: str | None = None
+    indexed: bool = False
+    indexed_at: str | None = None
+    page_count: int = 0
+    chunk_count: int = 0
+    ocr_used: bool = False
+    text_extraction_method: str = "unknown"
+
+
+class DeleteDocumentResponse(BaseModel):
+    file_name: str
+    deleted: bool
+
+
+class SystemCheckResponse(BaseModel):
+    backend: str
+    ollama_base_url: str
+    ollama_model: str
+    ollama_available: bool
+    ollama_error: str | None = None
+    embedding_model: str
+    chroma_db_dir: str
+    raw_pdf_dir: str
+    ocr: dict[str, Any]
 
 
 class SearchRequest(BaseModel):

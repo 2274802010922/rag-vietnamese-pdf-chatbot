@@ -40,3 +40,33 @@ def test_chroma_search_returns_metadata(tmp_path) -> None:
 
     assert results[0]["metadata"]["file_name"] == "doc.pdf"
     assert results[0]["metadata"]["source"] == "doc.pdf#page=1"
+
+
+def test_chroma_delete_document_removes_metadata(tmp_path) -> None:
+    pytest.importorskip("chromadb")
+    from app.vectorstore.chroma_store import ChromaStore
+
+    store = ChromaStore(
+        persist_dir=tmp_path / "chroma-delete",
+        embedding_model_name="fake",
+        embedding_model=FakeEmbeddingModel(),
+    )
+    store.add_chunks(
+        [
+            TextChunk(
+                text="Thông tin cần xóa.",
+                metadata={
+                    "doc_id": "doc",
+                    "file_name": "delete.pdf",
+                    "page": 1,
+                    "chunk_id": "delete-p1-c0",
+                    "source": "delete.pdf#page=1",
+                },
+            )
+        ]
+    )
+
+    assert store.count_document_chunks("delete.pdf") == 1
+    store.delete_document("delete.pdf")
+
+    assert store.count_document_chunks("delete.pdf") == 0

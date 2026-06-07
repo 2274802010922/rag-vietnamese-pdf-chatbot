@@ -52,6 +52,8 @@ def chunk_pages(
                             "page": page.page,
                             "chunk_id": chunk_id,
                             "source": source,
+                            "ocr_used": page.ocr_used,
+                            "page_text_method": page.page_text_method,
                         },
                     )
                 )

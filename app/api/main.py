@@ -2,13 +2,17 @@ from __future__ import annotations
 
 import logging
 import shutil
+from dataclasses import asdict
 from pathlib import Path
+from urllib import request as url_request
+from urllib.error import URLError
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 
 from app.api.schemas import (
     ChatRequest,
     ChatResponse,
+    DeleteDocumentResponse,
     DocumentInfo,
     HealthResponse,
     IndexRequest,
@@ -16,10 +20,13 @@ from app.api.schemas import (
     SearchRequest,
     SearchResponse,
     SourceChunk,
+    SystemCheckResponse,
     UploadResponse,
 )
+from app.documents.registry import DocumentRecord, DocumentRegistry
 from app.ingestion.chunker import chunk_pages
-from app.ingestion.pdf_loader import load_pdf_pages
+from app.ingestion.ocr import get_ocr_status
+from app.ingestion.pdf_loader import get_pdf_page_count, load_pdf_pages
 from app.llm.ollama_client import OllamaClient, OllamaError
 from app.rag.pipeline import RagPipeline
 from app.rag.retriever import Retriever
@@ -38,11 +45,36 @@ def _raw_pdf_dir() -> Path:
     return path
 
 
+def _registry() -> DocumentRegistry:
+    return DocumentRegistry(settings.resolve_path(settings.document_registry_path))
+
+
 def _get_store() -> ChromaStore:
     return ChromaStore(
         persist_dir=settings.resolve_path(settings.chroma_db_dir),
         embedding_model_name=settings.embedding_model,
     )
+
+
+def _record_to_info(record: DocumentRecord) -> DocumentInfo:
+    return DocumentInfo(**asdict(record))
+
+
+def _sync_registry_with_disk() -> list[DocumentRecord]:
+    registry = _registry()
+    raw_dir = _raw_pdf_dir()
+    records = registry.load()
+
+    for path in sorted(raw_dir.glob("*.pdf")):
+        if path.name not in records:
+            registry.upsert_upload(path)
+
+    records = registry.load()
+    missing = [name for name, record in records.items() if not Path(record.path).exists()]
+    for name in missing:
+        records.pop(name, None)
+    registry.save(records)
+    return registry.list_records()
 
 
 def _to_source_chunk(row: dict) -> SourceChunk:
@@ -67,6 +99,29 @@ def health() -> HealthResponse:
     )
 
 
+@app.get("/system/check", response_model=SystemCheckResponse)
+def system_check() -> SystemCheckResponse:
+    ollama_available = False
+    ollama_error = None
+    try:
+        with url_request.urlopen(f"{settings.ollama_base_url}/api/tags", timeout=5) as response:
+            ollama_available = response.status == 200
+    except URLError as exc:
+        ollama_error = str(exc)
+
+    return SystemCheckResponse(
+        backend="ok",
+        ollama_base_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+        ollama_available=ollama_available,
+        ollama_error=ollama_error,
+        embedding_model=settings.embedding_model,
+        chroma_db_dir=str(settings.resolve_path(settings.chroma_db_dir)),
+        raw_pdf_dir=str(settings.resolve_path(settings.raw_pdf_dir)),
+        ocr=get_ocr_status(),
+    )
+
+
 @app.post("/documents/upload", response_model=UploadResponse)
 async def upload_document(file: UploadFile = File(...)) -> UploadResponse:
     if not file.filename or not file.filename.lower().endswith(".pdf"):
@@ -75,6 +130,7 @@ async def upload_document(file: UploadFile = File(...)) -> UploadResponse:
     target = _raw_pdf_dir() / Path(file.filename).name
     with target.open("wb") as output:
         shutil.copyfileobj(file.file, output)
+    _registry().upsert_upload(target)
     logger.info("Saved uploaded PDF: %s", target)
     return UploadResponse(file_name=target.name, saved_path=str(target))
 
@@ -91,22 +147,55 @@ def index_documents(request: IndexRequest) -> IndexResponse:
     indexed_files: list[str] = []
     total_chunks = 0
     for pdf_path in pdfs:
+        store.delete_document(pdf_path.name)
         pages = load_pdf_pages(pdf_path)
         chunks = chunk_pages(pages, settings.chunk_size, settings.chunk_overlap)
         if not chunks:
             logger.warning("No text chunks extracted from %s. The PDF may be scanned.", pdf_path.name)
-        total_chunks += store.add_chunks(chunks)
+        added = store.add_chunks(chunks)
+        total_chunks += added
+        ocr_used = any(chunk.metadata.get("ocr_used") for chunk in chunks)
+        methods = {str(chunk.metadata.get("page_text_method", "unknown")) for chunk in chunks}
+        method = "mixed" if len(methods) > 1 else next(iter(methods), "unknown")
+        _registry().upsert_upload(pdf_path)
+        _registry().mark_indexed(
+            file_name=pdf_path.name,
+            page_count=get_pdf_page_count(pdf_path),
+            chunk_count=len(chunks),
+            ocr_used=ocr_used,
+            text_extraction_method=method,
+        )
         indexed_files.append(pdf_path.name)
     return IndexResponse(indexed_files=indexed_files, chunks_indexed=total_chunks)
 
 
 @app.get("/documents", response_model=list[DocumentInfo])
 def list_documents() -> list[DocumentInfo]:
+    return [_record_to_info(record) for record in _sync_registry_with_disk()]
+
+
+@app.delete("/documents/{file_name}", response_model=DeleteDocumentResponse)
+def delete_document(file_name: str) -> DeleteDocumentResponse:
     raw_dir = _raw_pdf_dir()
-    return [
-        DocumentInfo(file_name=path.name, path=str(path), size_bytes=path.stat().st_size)
-        for path in sorted(raw_dir.glob("*.pdf"))
-    ]
+    target = raw_dir / Path(file_name).name
+    if not target.exists():
+        raise HTTPException(status_code=404, detail="Không tìm thấy PDF để xóa.")
+
+    _get_store().delete_document(target.name)
+    target.unlink()
+    _registry().remove(target.name)
+    return DeleteDocumentResponse(file_name=target.name, deleted=True)
+
+
+@app.post("/documents/{file_name}/reindex", response_model=IndexResponse)
+def reindex_document(file_name: str) -> IndexResponse:
+    return index_documents(IndexRequest(file_name=Path(file_name).name))
+
+
+@app.get("/documents/{file_name}/chunks", response_model=SearchResponse)
+def document_chunks(file_name: str) -> SearchResponse:
+    rows = _get_store().get_document_chunks(Path(file_name).name)
+    return SearchResponse(results=[_to_source_chunk(row) for row in rows])
 
 
 @app.post("/search", response_model=SearchResponse)

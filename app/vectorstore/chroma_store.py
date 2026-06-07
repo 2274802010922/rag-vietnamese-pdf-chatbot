@@ -65,6 +65,24 @@ class ChromaStore:
         logger.info("Added %s chunks to ChromaDB", len(new_ids))
         return len(new_ids)
 
+    def delete_document(self, file_name: str) -> None:
+        """Delete all vectors belonging to a PDF file."""
+        self.collection.delete(where={"file_name": file_name})
+        logger.info("Deleted vectors for %s", file_name)
+
+    def count_document_chunks(self, file_name: str) -> int:
+        """Count chunks stored for a PDF file."""
+        result = self.collection.get(where={"file_name": file_name}, include=[])
+        return len(result.get("ids", []))
+
+    def get_document_chunks(self, file_name: str) -> list[dict[str, Any]]:
+        """Return stored chunks for a PDF file."""
+        result = self.collection.get(where={"file_name": file_name}, include=["documents", "metadatas"])
+        rows: list[dict[str, Any]] = []
+        for document, metadata in zip(result.get("documents", []), result.get("metadatas", []), strict=False):
+            rows.append({"text": document, "metadata": metadata})
+        return rows
+
     def search(self, query: str, top_k: int) -> list[dict[str, Any]]:
         """Search ChromaDB and return chunks with documents, metadata, and score."""
         query_embedding = _as_list(self.embedding_model.encode([query], normalize_embeddings=True))[0]

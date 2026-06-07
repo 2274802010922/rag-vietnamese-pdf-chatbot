@@ -1,6 +1,6 @@
 # Chatbot hỏi đáp tài liệu PDF tiếng Việt dùng RAG local
 
-Project này là Giai đoạn 1 của hệ thống chatbot hỏi đáp tài liệu PDF tiếng Việt sử dụng RAG và mô hình ngôn ngữ lớn chạy cục bộ.
+Project này là hệ thống chatbot hỏi đáp tài liệu PDF tiếng Việt sử dụng RAG và mô hình ngôn ngữ lớn chạy cục bộ.
 
 Mục tiêu chính:
 
@@ -38,6 +38,22 @@ Mục tiêu chính:
 - Gọi Ollama local qua HTTP API.
 - Trả lời bằng tiếng Việt.
 - Dẫn nguồn dạng `[file_name.pdf, trang X]`.
+- Quản lý tài liệu đã upload trong UI.
+- Re-index từng tài liệu hoặc toàn bộ tài liệu.
+- Xóa PDF và xóa vector tương ứng trong ChromaDB.
+- Tránh index trùng bằng cách xóa vector cũ trước khi re-index.
+- Registry tài liệu local tại `data/documents.json`.
+- OCR tùy chọn cho PDF scan bằng Tesseract.
+- Metadata OCR:
+  - `ocr_used`
+  - `page_text_method`
+- Kiểm tra hệ thống qua UI và API:
+  - backend
+  - Ollama
+  - model Ollama
+  - OCR/Tesseract
+- Lịch sử chat trong session Streamlit.
+- Export lịch sử chat ra Markdown.
 - Nếu không đủ thông tin trong context, trả lời:
 
 ```text
@@ -54,6 +70,7 @@ Tôi không tìm thấy thông tin này trong tài liệu.
 - sentence-transformers
 - Ollama
 - pytest
+- Tesseract OCR, tùy chọn cho PDF scan
 
 ## Cấu trúc project
 
@@ -63,7 +80,12 @@ rag-vietnamese-pdf-chatbot/
 │   ├── api/
 │   │   ├── main.py
 │   │   └── schemas.py
+│   ├── chat/
+│   │   └── history.py
+│   ├── documents/
+│   │   └── registry.py
 │   ├── ingestion/
+│   │   ├── ocr.py
 │   │   ├── pdf_loader.py
 │   │   └── chunker.py
 │   ├── rag/
@@ -82,6 +104,7 @@ rag-vietnamese-pdf-chatbot/
 ├── data/
 │   ├── raw_pdfs/
 │   ├── chroma_db/
+│   ├── documents.json
 │   └── eval/
 ├── tests/
 ├── scripts/
@@ -162,6 +185,57 @@ Nếu model trả lời được, gõ:
 /bye
 ```
 
+## Cài OCR cho PDF scan
+
+OCR là tùy chọn. Nếu bạn chỉ dùng PDF có text thật, có thể bỏ qua phần này.
+
+Với PDF scan/ảnh, cần cài Tesseract OCR và language pack tiếng Việt.
+
+### Windows
+
+Một cách phổ biến là cài Tesseract từ UB Mannheim:
+
+```text
+https://github.com/UB-Mannheim/tesseract/wiki
+```
+
+Khi cài, chọn thêm language data tiếng Việt nếu installer có tùy chọn. Sau khi cài, mở PowerShell mới và kiểm tra:
+
+```powershell
+tesseract --version
+```
+
+Kiểm tra language pack:
+
+```powershell
+tesseract --list-langs
+```
+
+Bạn nên thấy `vie` trong danh sách. Nếu chưa có, cần cài thêm file language data `vie.traineddata`.
+
+Python package OCR đã nằm trong `requirements.txt`:
+
+```text
+pytesseract
+Pillow
+```
+
+`Pillow` được cài gián tiếp qua Streamlit, còn `pytesseract` được khai báo trực tiếp.
+
+### macOS
+
+```bash
+brew install tesseract
+brew install tesseract-lang
+```
+
+### Linux Ubuntu/Debian
+
+```bash
+sudo apt update
+sudo apt install tesseract-ocr tesseract-ocr-vie
+```
+
 ## Cài đặt project từ GitHub
 
 Clone repo:
@@ -201,6 +275,7 @@ OLLAMA_MODEL=qwen2.5:7b
 OLLAMA_BASE_URL=http://localhost:11434
 CHROMA_DB_DIR=data/chroma_db
 RAW_PDF_DIR=data/raw_pdfs
+DOCUMENT_REGISTRY_PATH=data/documents.json
 TOP_K=5
 CHUNK_SIZE=800
 CHUNK_OVERLAP=150
@@ -214,6 +289,7 @@ BACKEND_BASE_URL=http://localhost:8000
 - `OLLAMA_BASE_URL`: địa chỉ Ollama local.
 - `CHROMA_DB_DIR`: nơi lưu ChromaDB local.
 - `RAW_PDF_DIR`: nơi lưu file PDF upload.
+- `DOCUMENT_REGISTRY_PATH`: nơi lưu registry metadata tài liệu.
 - `TOP_K`: số chunk truy xuất khi hỏi.
 - `CHUNK_SIZE`: kích thước chunk theo ký tự.
 - `CHUNK_OVERLAP`: số ký tự overlap giữa các chunk.
@@ -303,6 +379,7 @@ http://localhost:8501
 - Bấm `Lưu PDF và index`.
 - Bấm `Tóm tắt tài liệu`.
 - Bấm `Hỏi tài liệu`.
+- Xem nguồn và lịch sử chat ngay trong màn hình chính.
 
 Đây là cách test nhanh nhất cho câu hỏi kiểu:
 
@@ -318,6 +395,14 @@ Kiểm tra backend đang sống.
 
 ```powershell
 Invoke-RestMethod http://localhost:8000/health
+```
+
+### GET /system/check
+
+Kiểm tra backend, Ollama, model cấu hình và OCR:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/system/check
 ```
 
 ### POST /documents/upload
@@ -346,10 +431,47 @@ Invoke-RestMethod -Method Post `
 
 ### GET /documents
 
-Liệt kê PDF đã upload:
+Liệt kê PDF đã upload và metadata index:
 
 ```powershell
 Invoke-RestMethod http://localhost:8000/documents
+```
+
+Kết quả gồm:
+
+- `file_name`
+- `indexed`
+- `page_count`
+- `chunk_count`
+- `ocr_used`
+- `text_extraction_method`
+
+### DELETE /documents/{file_name}
+
+Xóa PDF và vector tương ứng:
+
+```powershell
+Invoke-RestMethod -Method Delete `
+  -Uri http://localhost:8000/documents/ten-file.pdf
+```
+
+### POST /documents/{file_name}/reindex
+
+Re-index một file:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8000/documents/ten-file.pdf/reindex `
+  -ContentType "application/json" `
+  -Body "{}"
+```
+
+### GET /documents/{file_name}/chunks
+
+Xem các chunk đã lưu của một file:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/documents/ten-file.pdf/chunks
 ```
 
 ### POST /search
@@ -433,7 +555,7 @@ http://localhost:8501
 
 ## Lưu ý về PDF scan
 
-Giai đoạn 1 dùng PyMuPDF để extract text trực tiếp. Nếu PDF là bản scan hoặc ảnh, hệ thống có thể không đọc được chữ.
+Hệ thống dùng PyMuPDF để extract text trực tiếp. Nếu một page có text quá ít, app sẽ thử OCR bằng Tesseract nếu OCR đã được cài đúng.
 
 Cách kiểm tra:
 
@@ -441,7 +563,16 @@ Cách kiểm tra:
 2. Thử bôi đen và copy một đoạn chữ.
 3. Nếu không copy được chữ, PDF có thể là scan.
 
-Với PDF scan, cần thêm OCR ở giai đoạn sau.
+Nếu OCR chưa sẵn sàng, app vẫn không crash. UI/API sẽ báo OCR chưa khả dụng trong phần `Kiểm tra hệ thống`.
+
+Metadata chunk cho OCR:
+
+```json
+{
+  "ocr_used": true,
+  "page_text_method": "ocr"
+}
+```
 
 ## Lỗi thường gặp
 
@@ -541,22 +672,36 @@ Invoke-RestMethod -Method Post `
   -Body '{"question":"Hãy tóm tắt tài liệu"}' | ConvertTo-Json -Depth 5
 ```
 
+### OCR chưa hoạt động
+
+Kiểm tra:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/system/check
+```
+
+Nếu `ocr.available` là `false`, kiểm tra:
+
+```powershell
+tesseract --version
+tesseract --list-langs
+```
+
+Nếu thiếu tiếng Việt, cài thêm language pack `vie`.
+
 ## Ghi chú bảo mật và dữ liệu
 
 Repo không commit:
 
 - `.env`
 - `.venv`
-- PDF upload thật trong `data/raw_pdfs`
-- ChromaDB vector store trong `data/chroma_db`
 - Cache Python/test
 
-Điều này giúp tránh đẩy dữ liệu riêng tư và file nặng lên GitHub.
+Lưu ý: repo hiện có thể chứa dữ liệu mẫu nếu người maintain force-add PDF/ChromaDB để tái hiện demo. Với dữ liệu thật/riêng tư, không nên commit PDF hoặc vector DB.
 
 ## Hướng phát triển tiếp theo
 
-- OCR cho PDF scan.
-- Xóa/re-index từng tài liệu.
+- OCR layout tốt hơn cho bảng/biểu mẫu.
 - Hiển thị lịch sử chat.
 - Đánh giá chất lượng retrieval.
 - Hỗ trợ nhiều collection.
