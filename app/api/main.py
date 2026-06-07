@@ -130,7 +130,7 @@ async def upload_document(file: UploadFile = File(...)) -> UploadResponse:
     target = _raw_pdf_dir() / Path(file.filename).name
     with target.open("wb") as output:
         shutil.copyfileobj(file.file, output)
-    _registry().upsert_upload(target)
+    _registry().upsert_upload(target, mark_unindexed=True)
     logger.info("Saved uploaded PDF: %s", target)
     return UploadResponse(file_name=target.name, saved_path=str(target))
 
@@ -157,7 +157,7 @@ def index_documents(request: IndexRequest) -> IndexResponse:
         ocr_used = any(chunk.metadata.get("ocr_used") for chunk in chunks)
         methods = {str(chunk.metadata.get("page_text_method", "unknown")) for chunk in chunks}
         method = "mixed" if len(methods) > 1 else next(iter(methods), "unknown")
-        _registry().upsert_upload(pdf_path)
+        _registry().upsert_upload(pdf_path, mark_unindexed=False)
         _registry().mark_indexed(
             file_name=pdf_path.name,
             page_count=get_pdf_page_count(pdf_path),

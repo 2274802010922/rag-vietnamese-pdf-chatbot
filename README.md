@@ -265,6 +265,28 @@ Tạo file cấu hình:
 Copy-Item .env.example .env
 ```
 
+### Cách setup nhanh trên Windows
+
+Repo có sẵn script setup:
+
+```powershell
+.\scripts\setup.ps1
+```
+
+Script này sẽ:
+
+- Tạo `.venv` nếu chưa có.
+- Cài dependencies.
+- Tạo `.env` từ `.env.example` nếu thiếu.
+- Chạy `scripts/doctor.py` để kiểm tra môi trường.
+
+Nếu PowerShell chặn script `.ps1`, dùng cách không cần activate:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts\doctor.py
+```
+
 ## Cấu hình
 
 File `.env.example`:
@@ -304,6 +326,12 @@ cd rag-vietnamese-pdf-chatbot
 .\.venv\Scripts\python.exe -m uvicorn app.api.main:app --reload
 ```
 
+Hoặc dùng script:
+
+```powershell
+.\scripts\run_backend.ps1
+```
+
 Backend mặc định chạy tại:
 
 ```text
@@ -339,6 +367,12 @@ Mở terminal 2:
 ```powershell
 cd rag-vietnamese-pdf-chatbot
 .\.venv\Scripts\python.exe -m streamlit run ui/streamlit_app.py
+```
+
+Hoặc dùng script:
+
+```powershell
+.\scripts\run_ui.ps1
 ```
 
 UI mặc định chạy tại:
@@ -512,10 +546,46 @@ Nếu đã có PDF trong `data/raw_pdfs`, có thể index lại bằng:
 .\.venv\Scripts\python.exe scripts\rebuild_index.py
 ```
 
+## Doctor check
+
+Kiểm tra cấu hình local:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\doctor.py
+```
+
+Kết quả trả JSON gồm:
+
+- Python version
+- Project root
+- Config đang dùng
+- Module Python đã cài chưa
+- Git/Ollama/Tesseract có trong PATH chưa
+- Ollama API có kết nối được không
+- OCR có sẵn sàng không
+
+## Smoke test API
+
+Khi backend đang chạy, có thể chạy smoke test tối thiểu:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_test.py
+```
+
+Script này tạo một PDF mẫu, upload qua API, index và search thử.
+
+Lưu ý: smoke test dùng backend thật nên lần đầu có thể tải embedding model nếu máy chưa có cache.
+
 ## Chạy test
 
 ```powershell
 .\.venv\Scripts\python.exe -m pytest
+```
+
+Hoặc:
+
+```powershell
+.\scripts\run_tests.ps1
 ```
 
 Các test tối thiểu hiện có:
@@ -536,6 +606,7 @@ cd rag-vietnamese-pdf-chatbot
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 Copy-Item .env.example .env
+.\.venv\Scripts\python.exe scripts\doctor.py
 ollama pull qwen2.5:7b
 .\.venv\Scripts\python.exe -m uvicorn app.api.main:app --reload
 ```

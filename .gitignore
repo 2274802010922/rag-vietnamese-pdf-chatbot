@@ -3,6 +3,7 @@
 __pycache__/
 *.pyc
 .pytest_cache/
+.pytest_tmp/
 data/raw_pdfs/*.pdf
 data/chroma_db/*
 !data/chroma_db/.gitkeep

@@ -1,0 +1,14 @@
+{
+  "253_71ITIS30403_0102_nhom1_QLPTHTTT_Thực_hành1.pdf": {
+    "file_name": "253_71ITIS30403_0102_nhom1_QLPTHTTT_Thực_hành1.pdf",
+    "path": "C:\\Users\\haban\\Documents\\Codex\\2026-06-07\\t-i-mu-n-b-n\\outputs\\rag-vietnamese-pdf-chatbot\\data\\raw_pdfs\\253_71ITIS30403_0102_nhom1_QLPTHTTT_Thực_hành1.pdf",
+    "size_bytes": 864574,
+    "uploaded_at": "2026-06-07T17:04:47.213248+00:00",
+    "indexed": true,
+    "indexed_at": "2026-06-07T17:04:47.247608+00:00",
+    "page_count": 37,
+    "chunk_count": 50,
+    "ocr_used": false,
+    "text_extraction_method": "pymupdf"
+  }
+}

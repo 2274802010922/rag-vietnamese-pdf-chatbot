@@ -33,7 +33,7 @@ def rebuild_index() -> int:
         chunks = chunk_pages(pages, settings.chunk_size, settings.chunk_overlap)
         added = store.add_chunks(chunks)
         total += added
-        registry.upsert_upload(pdf_path)
+        registry.upsert_upload(pdf_path, mark_unindexed=False)
         methods = {str(chunk.metadata.get("page_text_method", "unknown")) for chunk in chunks}
         registry.mark_indexed(
             file_name=pdf_path.name,

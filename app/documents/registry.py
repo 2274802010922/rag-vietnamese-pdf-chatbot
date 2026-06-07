@@ -42,20 +42,35 @@ class DocumentRegistry:
         payload: dict[str, dict[str, Any]] = {name: asdict(record) for name, record in records.items()}
         self.path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    def upsert_upload(self, file_path: Path) -> DocumentRecord:
+    def upsert_upload(self, file_path: Path, mark_unindexed: bool = True) -> DocumentRecord:
         records = self.load()
         existing = records.get(file_path.name)
+        if mark_unindexed or not existing:
+            indexed = False
+            indexed_at = None
+            page_count = 0
+            chunk_count = 0
+            ocr_used = False
+            text_extraction_method = "unknown"
+        else:
+            indexed = existing.indexed
+            indexed_at = existing.indexed_at
+            page_count = existing.page_count
+            chunk_count = existing.chunk_count
+            ocr_used = existing.ocr_used
+            text_extraction_method = existing.text_extraction_method
+
         record = DocumentRecord(
             file_name=file_path.name,
             path=str(file_path),
             size_bytes=file_path.stat().st_size,
             uploaded_at=existing.uploaded_at if existing else utc_now_iso(),
-            indexed=existing.indexed if existing else False,
-            indexed_at=existing.indexed_at if existing else None,
-            page_count=existing.page_count if existing else 0,
-            chunk_count=existing.chunk_count if existing else 0,
-            ocr_used=existing.ocr_used if existing else False,
-            text_extraction_method=existing.text_extraction_method if existing else "unknown",
+            indexed=indexed,
+            indexed_at=indexed_at,
+            page_count=page_count,
+            chunk_count=chunk_count,
+            ocr_used=ocr_used,
+            text_extraction_method=text_extraction_method,
         )
         records[file_path.name] = record
         self.save(records)
